@@ -1,4 +1,4 @@
-import os, re, io, sys, asyncio, sqlite3, threading, requests
+import os, re, io, sys, json, asyncio, sqlite3, threading, requests
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from bs4 import BeautifulSoup
@@ -22,6 +22,9 @@ API = "https://api.telegram.org/bot" + TOKEN + "/"
 NUM = re.compile(r"\d[\d\s.,]{2,}\d")
 SM = re.compile(r"^\s*[—–-]\s*(.+)$")
 LN = re.compile(r"^\s*(\S+)\s+(.+?)\s*\(([^)]*)\)\s*[—–-]\s*(.+)$")
+KB = [["/now", "/last"], ["/now airpods", "/chart airpods"], ["/now 256", "/now 512"], ["/now 1tb", "/now 2tb"]]
+MK = json.dumps({"keyboard": KB, "resize_keyboard": True})
+CMDS = json.dumps([{"command": "now", "description": "Актуальный прайс"}, {"command": "last", "description": "Последние изменения"}, {"command": "stats", "description": "Мин/макс (нужен фильтр)"}, {"command": "chart", "description": "График (нужен фильтр)"}])
 HELP = "/now [фильтр] - актуальный прайс, от дешёвых к дорогим, с изменением\n/last [фильтр] - последние 10 изменений\n/stats фильтр - мин/макс/текущая\n/chart фильтр - график\n\nФильтр - слова через пробел: 256, 512, 1tb, 2tb, silver, deep blue, cosmic orange, esim, 1sim.\nНапример: /chart 256 silver esim\nAirPods Pro 3: /now airpods, /chart airpods"
 
 
@@ -346,12 +349,13 @@ def api(m, **kw):
 
 def send(chat, out):
     if isinstance(out, bytes):
-        requests.post(API + "sendPhoto", data={"chat_id": chat}, files={"photo": ("c.png", out)}, timeout=60)
+        requests.post(API + "sendPhoto", data={"chat_id": chat, "reply_markup": MK}, files={"photo": ("c.png", out)}, timeout=60)
     else:
-        api("sendMessage", chat_id=chat, text=out)
+        api("sendMessage", chat_id=chat, text=out, reply_markup=MK)
 
 
 def once():
+    api("setMyCommands", commands=CMDS)
     try:
         ch = check()
     except Exception as e:
@@ -393,7 +397,9 @@ def srv():
 
 
 def run_bot():
+    from telegram import ReplyKeyboardMarkup
     from telegram.ext import Application, MessageHandler, filters
+    rk = ReplyKeyboardMarkup(KB, resize_keyboard=True)
 
     async def hnd(u, ctx):
         if OWNER and u.effective_user.id != OWNER:
@@ -401,9 +407,9 @@ def run_bot():
         parts = u.message.text.split()
         out = await asyncio.to_thread(run_cmd, parts[0].split("@")[0].lower(), parts[1:])
         if isinstance(out, bytes):
-            await u.message.reply_photo(io.BytesIO(out))
+            await u.message.reply_photo(io.BytesIO(out), reply_markup=rk)
         else:
-            await u.message.reply_text(out)
+            await u.message.reply_text(out, reply_markup=rk)
 
     async def imp(u, ctx):
         if OWNER and u.effective_user.id != OWNER:
