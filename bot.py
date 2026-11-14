@@ -22,10 +22,10 @@ API = "https://api.telegram.org/bot" + TOKEN + "/"
 NUM = re.compile(r"\d[\d\s.,]{2,}\d")
 SM = re.compile(r"^\s*[—–-]\s*(.+)$")
 LN = re.compile(r"^\s*(\S+)\s+(.+?)\s*\(([^)]*)\)\s*[—–-]\s*(.+)$")
-KB = [["/now", "/last"], ["/now airpods", "/chart airpods"], ["/now 256", "/now 512"], ["/now 1tb", "/now 2tb"]]
+KB = [["/chart 256", "/now 256"], ["/chart 512", "/chart 1tb"], ["/now", "/last"], ["/now airpods", "/chart airpods"]]
 MK = json.dumps({"keyboard": KB, "resize_keyboard": True})
-CMDS = json.dumps([{"command": "now", "description": "Актуальный прайс"}, {"command": "last", "description": "Последние изменения"}, {"command": "stats", "description": "Мин/макс (нужен фильтр)"}, {"command": "chart", "description": "График (нужен фильтр)"}])
-HELP = "/now [фильтр] - актуальный прайс, от дешёвых к дорогим, с изменением\n/last [фильтр] - последние 10 изменений\n/stats фильтр - мин/макс/текущая\n/chart фильтр - график\n\nФильтр - слова через пробел: 256, 512, 1tb, 2tb, silver, deep blue, cosmic orange, esim, 1sim.\nНапример: /chart 256 silver esim\nAirPods Pro 3: /now airpods, /chart airpods"
+CMDS = json.dumps([{"command": "now", "description": "Актуальный прайс"}, {"command": "last", "description": "Последние изменения"}, {"command": "stats", "description": "Сейчас/мин/макс"}, {"command": "chart", "description": "График (нужен фильтр)"}])
+HELP = "/now [фильтр] - актуальный прайс, от дешёвых к дорогим, с изменением\n/last [фильтр] - последние 10 изменений\n/stats [фильтр] - сейчас/мин/макс по каждому варианту\n/chart фильтр - график, по линии на вариант\n\nФильтр - слова через пробел: 256, 512, 1tb, 2tb, silver, deep blue, cosmic orange, esim, 1sim.\nНапример: /chart 256 silver esim\nAirPods Pro 3: /now airpods, /chart airpods"
 
 
 def db():
@@ -286,47 +286,82 @@ def c_last(args):
     return t
 
 
+COL = {"silver": "#9aa0a6", "deep blue": "#1a4fd6", "cosmic orange": "#f28c28"}
+
+
+def groups(r):
+    g = {}
+    ks = []
+    for i in range(len(r)):
+        v = r[i][1]
+        if v not in g:
+            g[v] = []
+            ks.append(v)
+        g[v].append((r[i][0], r[i][2]))
+    return ks, g
+
+
 def c_stats(args):
-    if not args:
-        return "Нужен фильтр, например: /stats 256 silver esim"
     r = get(args)
     if not r:
         return "Данных нет"
-    a = 0
-    b = 0
-    for i in range(len(r)):
-        if r[i][2] < r[a][2]:
-            a = i
-        if r[i][2] > r[b][2]:
-            b = i
-    t = "Изменений цены: " + str(len(r)) + "\n"
-    t += "Сейчас: " + fmt(r[-1][2]) + " (" + dt(r[-1][0]) + ")\n"
-    t += "Мин: " + fmt(r[a][2]) + " (" + dt(r[a][0]) + ")\n"
-    t += "Макс: " + fmt(r[b][2]) + " (" + dt(r[b][0]) + ")"
+    ks, g = groups(r)
+    t = ""
+    for i in range(len(ks)):
+        q = g[ks[i]]
+        lo = q[0][1]
+        hi = q[0][1]
+        for j in range(len(q)):
+            if q[j][1] < lo:
+                lo = q[j][1]
+            if q[j][1] > hi:
+                hi = q[j][1]
+        t += ks[i] + ": сейчас " + fmt(q[-1][1]) + ", мин " + fmt(lo) + ", макс " + fmt(hi) + ", правок " + str(len(q)) + "\n"
     return t
 
 
 def c_chart(args):
     if not args:
-        return "Нужен фильтр, например: /chart 256 silver esim"
+        return "Нужен фильтр, например: /chart 256"
     r = get(args)
-    if len(r) < 2:
-        return "Мало данных"
+    if not r:
+        return "Данных нет"
+    ks, g = groups(r)
+    more = False
+    for i in range(len(ks)):
+        if len(g[ks[i]]) > 1:
+            more = True
+    if not more:
+        return "Цены пока не менялись, график появится после первой правки.\n\n" + c_now(args)
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    xs = []
-    ys = []
-    for i in range(len(r)):
-        xs.append(datetime.fromisoformat(r[i][0]))
-        ys.append(r[i][2])
-    plt.figure(figsize=(8, 4))
-    plt.step(xs, ys, where="post", marker="o")
-    plt.grid(True)
+    from matplotlib.ticker import FuncFormatter
+    end = datetime.now(timezone.utc)
+    plt.figure(figsize=(9, 5))
+    for i in range(len(ks)):
+        v = ks[i]
+        xs = []
+        ys = []
+        for j in range(len(g[v])):
+            xs.append(datetime.fromisoformat(g[v][j][0]))
+            ys.append(g[v][j][1])
+        xs.append(end)
+        ys.append(ys[-1])
+        kw = {}
+        for k in COL:
+            if k in v:
+                kw["color"] = COL[k]
+        if v.endswith("esim") and not v.endswith("1sim"):
+            kw["linestyle"] = "--"
+        plt.step(xs, ys, where="post", label=v, marker="o", markersize=3, **kw)
+    plt.grid(True, alpha=0.3)
     plt.title(" ".join(args))
+    plt.legend(fontsize=8, loc="upper left", bbox_to_anchor=(1.01, 1))
+    plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda x, p: fmt(int(x))))
     plt.gcf().autofmt_xdate()
     b = io.BytesIO()
-    plt.savefig(b, format="png", dpi=100)
+    plt.savefig(b, format="png", dpi=110, bbox_inches="tight")
     plt.close()
     return b.getvalue()
 
