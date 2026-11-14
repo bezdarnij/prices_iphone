@@ -7,7 +7,11 @@ TOKEN = os.environ["BOT_TOKEN"]
 CH = os.environ.get("CHANNEL", "new_store77").replace("@", "")
 OWNER = int(os.environ.get("OWNER_ID", "0"))
 DB = os.environ.get("DB_PATH", "prices.db")
-KEY = os.environ.get("KEY", "17 pro max").lower()
+KEYS = []
+ks0 = os.environ.get("KEYS", "17 pro max,airpods pro 3").split(",")
+for i in range(len(ks0)):
+    if ks0[i].strip():
+        KEYS.append(ks0[i].strip().lower())
 EVERY = int(os.environ.get("EVERY", "600"))
 PAGES = int(os.environ.get("PAGES", "10"))
 LO = int(os.environ.get("MIN_PRICE", "1000"))
@@ -16,8 +20,9 @@ BASE = "https://t.me/s/" + CH
 EMB = "https://t.me/" + CH + "/%d?embed=1&mode=tme"
 API = "https://api.telegram.org/bot" + TOKEN + "/"
 NUM = re.compile(r"\d[\d\s.,]{2,}\d")
+SM = re.compile(r"^\s*[—–-]\s*(.+)$")
 LN = re.compile(r"^\s*(\S+)\s+(.+?)\s*\(([^)]*)\)\s*[—–-]\s*(.+)$")
-HELP = "/now [фильтр] - актуальный прайс, от дешёвых к дорогим, с изменением\n/last [фильтр] - последние 10 изменений\n/stats фильтр - мин/макс/текущая\n/chart фильтр - график\n\nФильтр - слова через пробел: 256, 512, 1tb, 2tb, silver, deep blue, cosmic orange, esim, 1sim.\nНапример: /chart 256 silver esim"
+HELP = "/now [фильтр] - актуальный прайс, от дешёвых к дорогим, с изменением\n/last [фильтр] - последние 10 изменений\n/stats фильтр - мин/макс/текущая\n/chart фильтр - график\n\nФильтр - слова через пробел: 256, 512, 1tb, 2tb, silver, deep blue, cosmic orange, esim, 1sim.\nНапример: /chart 256 silver esim\nAirPods Pro 3: /now airpods, /chart airpods"
 
 
 def db():
@@ -47,28 +52,40 @@ def now_ts():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def parse(text):
+def parse(text, keys=None):
+    if keys is None:
+        keys = KEYS
     out = []
     ls = text.split("\n")
     for i in range(len(ls)):
         l = ls[i]
         low = l.lower()
-        if KEY not in low:
-            continue
-        m = LN.match(l[low.index(KEY) + len(KEY):])
-        if not m:
-            continue
-        ns = NUM.findall(m.group(4))
-        if not ns:
-            continue
-        p = int(re.sub(r"\D", "", ns[-1]))
-        if p < LO or p > HI:
-            continue
-        mem = m.group(1).lower()
-        if mem[-1] in "тt":
-            mem = mem[:-1] + "tb"
-        sim = "esim" if m.group(3).strip().lower() == "esim" else "1sim"
-        out.append((mem + " " + m.group(2).strip().lower() + " " + sim, p))
+        for q in range(len(keys)):
+            key = keys[q]
+            if key not in low:
+                continue
+            rest = l[low.index(key) + len(key):]
+            m = LN.match(rest)
+            if m:
+                tail = m.group(4)
+                mem = m.group(1).lower()
+                if mem[-1] in "тt":
+                    mem = mem[:-1] + "tb"
+                sim = "esim" if m.group(3).strip().lower() == "esim" else "1sim"
+                v = mem + " " + m.group(2).strip().lower() + " " + sim
+            else:
+                m = SM.match(rest)
+                if not m:
+                    continue
+                tail = m.group(1)
+                v = key
+            ns = NUM.findall(tail)
+            if not ns:
+                continue
+            p = int(re.sub(r"\D", "", ns[-1]))
+            if p < LO or p > HI:
+                continue
+            out.append((v, p))
     return out
 
 
@@ -128,45 +145,58 @@ def tracked():
     return out
 
 
+def find(key, rows):
+    for k in range(PAGES):
+        best = None
+        for i in range(len(rows)):
+            if parse(rows[i][1], [key]) and (best is None or rows[i][0] > best[0]):
+                best = rows[i]
+        if best:
+            return best
+        if not rows:
+            return None
+        old = rows[0][0]
+        for i in range(len(rows)):
+            if rows[i][0] < old:
+                old = rows[i][0]
+        rows = grab(BASE + "?before=" + str(old))
+    return None
+
+
 def check():
     tr = tracked()
     rows = grab(BASE)
-    if not tr:
-        for k in range(PAGES):
-            best = None
-            for i in range(len(rows)):
-                if parse(rows[i][1]) and (best is None or rows[i][0] > best[0]):
-                    best = rows[i]
-            if best:
-                return save([best])
-            if not rows:
-                return []
-            old = rows[0][0]
-            for i in range(len(rows)):
-                if rows[i][0] < old:
-                    old = rows[i][0]
-            rows = grab(BASE + "?before=" + str(old))
-        return []
     d = {}
     for i in range(len(rows)):
         d[rows[i][0]] = rows[i][1]
-    top = max(tr)
     out = []
-    for k in d:
-        if k > top:
-            out.append((k, d[k]))
-    for i in range(len(tr)):
-        m = tr[i]
-        if m in d:
-            out.append((m, d[m]))
-        else:
-            try:
-                got = grab(EMB % m, m)
-            except Exception:
-                got = []
-            for j in range(len(got)):
-                out.append(got[j])
-    return save(out)
+    fk = []
+    for q in range(len(KEYS)):
+        if meta_get("found:" + KEYS[q], "") == "":
+            b = find(KEYS[q], rows)
+            if b:
+                out.append(b)
+                fk.append(KEYS[q])
+    if tr:
+        top = max(tr)
+        for k in d:
+            if k > top and parse(d[k]):
+                out.append((k, d[k]))
+        for i in range(len(tr)):
+            m = tr[i]
+            if m in d:
+                out.append((m, d[m]))
+            else:
+                try:
+                    got = grab(EMB % m, m)
+                except Exception:
+                    got = []
+                for j in range(len(got)):
+                    out.append(got[j])
+    ch = save(out)
+    for q in range(len(fk)):
+        meta_set("found:" + fk[q], "1")
+    return ch
 
 
 def allp():
