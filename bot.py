@@ -16,16 +16,26 @@ EVERY = int(os.environ.get("EVERY", "600"))
 PAGES = int(os.environ.get("PAGES", "10"))
 LO = int(os.environ.get("MIN_PRICE", "1000"))
 HI = int(os.environ.get("MAX_PRICE", "10000000"))
+MEMS = []
+ms0 = os.environ.get("MEMS", "256,512").split(",")
+for i in range(len(ms0)):
+    if ms0[i].strip():
+        MEMS.append(ms0[i].strip().lower())
+SIMS = []
+ss0 = os.environ.get("SIMS", "1sim").split(",")
+for i in range(len(ss0)):
+    if ss0[i].strip():
+        SIMS.append(ss0[i].strip().lower())
 BASE = "https://t.me/s/" + CH
 EMB = "https://t.me/" + CH + "/%d?embed=1&mode=tme"
 API = "https://api.telegram.org/bot" + TOKEN + "/"
 NUM = re.compile(r"\d[\d\s.,]{2,}\d")
 SM = re.compile(r"^\s*[—–-]\s*(.+)$")
 LN = re.compile(r"^\s*(\S+)\s+(.+?)\s*\(([^)]*)\)\s*[—–-]\s*(.+)$")
-KB = [["/chart 256", "/now 256"], ["/chart 512", "/chart 1tb"], ["/now", "/last"], ["/now airpods", "/chart airpods"]]
+KB = [["/chart 256", "/chart 512"], ["/now 256", "/now 512"], ["/now", "/last"], ["/now airpods", "/chart airpods"]]
 MK = json.dumps({"keyboard": KB, "resize_keyboard": True})
 CMDS = json.dumps([{"command": "now", "description": "Актуальный прайс"}, {"command": "last", "description": "Последние изменения"}, {"command": "stats", "description": "Сейчас/мин/макс"}, {"command": "chart", "description": "График (нужен фильтр)"}])
-HELP = "/now [фильтр] - актуальный прайс, от дешёвых к дорогим, с изменением\n/last [фильтр] - последние 10 изменений\n/stats [фильтр] - сейчас/мин/макс по каждому варианту\n/chart фильтр - график, по линии на вариант\n\nФильтр - слова через пробел: 256, 512, 1tb, 2tb, silver, deep blue, cosmic orange, esim, 1sim.\nНапример: /chart 256 silver esim\nAirPods Pro 3: /now airpods, /chart airpods"
+HELP = "/now [фильтр] - актуальный прайс, от дешёвых к дорогим, с изменением\n/last [фильтр] - последние 10 изменений\n/stats [фильтр] - сейчас/мин/макс по каждому варианту\n/chart фильтр - график, по линии на вариант\n\nФильтр - слова через пробел: 256, 512, silver, deep blue, cosmic orange.\nНапример: /chart 256 silver esim\nAirPods Pro 3: /now airpods, /chart airpods"
 
 
 def db():
@@ -49,6 +59,13 @@ def meta_set(k, v):
     c.execute("insert or replace into meta values(?,?)", (k, v))
     c.commit()
     c.close()
+
+
+def allowed(v):
+    if not v.endswith("sim"):
+        return True
+    w = v.split()
+    return w[0] in MEMS and w[-1] in SIMS
 
 
 def now_ts():
@@ -75,6 +92,8 @@ def parse(text, keys=None):
                 if mem[-1] in "тt":
                     mem = mem[:-1] + "tb"
                 sim = "esim" if m.group(3).strip().lower() == "esim" else "1sim"
+                if mem not in MEMS or sim not in SIMS:
+                    continue
                 v = mem + " " + m.group(2).strip().lower() + " " + sim
             else:
                 m = SM.match(rest)
@@ -206,7 +225,11 @@ def allp():
     c = db()
     r = c.execute("select ts, v, p from ph order by ts").fetchall()
     c.close()
-    return r
+    out = []
+    for i in range(len(r)):
+        if allowed(r[i][1]):
+            out.append(r[i])
+    return out
 
 
 def get(args):
