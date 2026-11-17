@@ -1,4 +1,4 @@
-import os, re, io, sys, json, asyncio, sqlite3, threading, requests
+import os, re, io, sys, json, time, asyncio, sqlite3, threading, requests
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from bs4 import BeautifulSoup
@@ -402,18 +402,32 @@ def run_cmd(cmd, args):
 
 
 def api(m, **kw):
-    return requests.post(API + m, data=kw, timeout=30).json()
+    for i in range(3):
+        try:
+            return requests.post(API + m, data=kw, timeout=20).json()
+        except Exception as e:
+            print("api fail:", m, type(e).__name__)
+            time.sleep(5 * (i + 1))
+    return {}
 
 
 def send(chat, out):
     if isinstance(out, bytes):
-        requests.post(API + "sendPhoto", data={"chat_id": chat, "reply_markup": MK}, files={"photo": ("c.png", out)}, timeout=60)
+        for i in range(3):
+            try:
+                requests.post(API + "sendPhoto", data={"chat_id": chat, "reply_markup": MK}, files={"photo": ("c.png", out)}, timeout=60)
+                return
+            except Exception as e:
+                print("photo fail:", type(e).__name__)
+                time.sleep(5 * (i + 1))
     else:
         api("sendMessage", chat_id=chat, text=out, reply_markup=MK)
 
 
 def once():
-    api("setMyCommands", commands=CMDS)
+    if meta_get("cmds", "") != "1":
+        if api("setMyCommands", commands=CMDS).get("ok"):
+            meta_set("cmds", "1")
     try:
         ch = check()
     except Exception as e:
