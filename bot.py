@@ -5,7 +5,11 @@ from bs4 import BeautifulSoup
 
 TOKEN = os.environ["BOT_TOKEN"]
 CH = os.environ.get("CHANNEL", "new_store77").replace("@", "")
-OWNER = int(os.environ.get("OWNER_ID", "0"))
+OWNERS = []
+os0 = os.environ.get("OWNER_ID", "").split(",")
+for i in range(len(os0)):
+    if os0[i].strip().isdigit():
+        OWNERS.append(int(os0[i].strip()))
 DB = os.environ.get("DB_PATH", "prices.db")
 KEYS = []
 ks0 = os.environ.get("KEYS", "17 pro max,airpods pro 3").split(",")
@@ -434,8 +438,9 @@ def once():
         print("check failed:", type(e).__name__)
         ch = []
     t = note(ch)
-    if t and OWNER:
-        send(OWNER, t)
+    if t:
+        for i in range(len(OWNERS)):
+            send(OWNERS[i], t)
     off = int(meta_get("off", "0"))
     ups = api("getUpdates", offset=off, timeout=0).get("result", [])
     for i in range(len(ups)):
@@ -444,7 +449,7 @@ def once():
         m = up.get("message")
         if not m or "text" not in m:
             continue
-        if OWNER and m["from"]["id"] != OWNER:
+        if OWNERS and m["from"]["id"] not in OWNERS:
             continue
         parts = m["text"].split()
         if not parts:
@@ -474,7 +479,7 @@ def run_bot():
     rk = ReplyKeyboardMarkup(KB, resize_keyboard=True)
 
     async def hnd(u, ctx):
-        if OWNER and u.effective_user.id != OWNER:
+        if OWNERS and u.effective_user.id not in OWNERS:
             return
         parts = u.message.text.split()
         out = await asyncio.to_thread(run_cmd, parts[0].split("@")[0].lower(), parts[1:])
@@ -484,7 +489,7 @@ def run_bot():
             await u.message.reply_text(out, reply_markup=rk)
 
     async def imp(u, ctx):
-        if OWNER and u.effective_user.id != OWNER:
+        if not OWNERS or u.effective_user.id != OWNERS[0]:
             return
         d = u.message.document
         if not d.file_name.endswith(".db"):
@@ -498,10 +503,11 @@ def run_bot():
             ch = await asyncio.to_thread(check)
         except Exception:
             return
-        if ch and OWNER:
-            await ctx.bot.send_message(OWNER, note(ch))
+        if ch and OWNERS:
+            for i in range(len(OWNERS)):
+                await ctx.bot.send_message(OWNERS[i], note(ch))
             with open(DB, "rb") as f:
-                await ctx.bot.send_document(OWNER, f, filename="prices.db", disable_notification=True)
+                await ctx.bot.send_document(OWNERS[0], f, filename="prices.db", disable_notification=True)
 
     db().close()
     if os.environ.get("PORT"):
