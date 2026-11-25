@@ -408,7 +408,10 @@ def run_cmd(cmd, args):
 def api(m, **kw):
     for i in range(3):
         try:
-            return requests.post(API + m, data=kw, timeout=20).json()
+            r = requests.post(API + m, data=kw, timeout=20).json()
+            if isinstance(r, dict) and not r.get("ok"):
+                print("api error:", m, r.get("description"))
+            return r
         except Exception as e:
             print("api fail:", m, type(e).__name__)
             time.sleep(5 * (i + 1))
@@ -419,7 +422,9 @@ def send(chat, out):
     if isinstance(out, bytes):
         for i in range(3):
             try:
-                requests.post(API + "sendPhoto", data={"chat_id": chat, "reply_markup": MK}, files={"photo": ("c.png", out)}, timeout=60)
+                r = requests.post(API + "sendPhoto", data={"chat_id": chat, "reply_markup": MK}, files={"photo": ("c.png", out)}, timeout=60).json()
+                if not r.get("ok"):
+                    print("photo error:", r.get("description"))
                 return
             except Exception as e:
                 print("photo fail:", type(e).__name__)
@@ -443,6 +448,8 @@ def once():
             send(OWNERS[i], t)
     off = int(meta_get("off", "0"))
     ups = api("getUpdates", offset=off, timeout=0).get("result", [])
+    ign = 0
+    ans = 0
     for i in range(len(ups)):
         up = ups[i]
         off = up["update_id"] + 1
@@ -450,13 +457,21 @@ def once():
         if not m or "text" not in m:
             continue
         if OWNERS and m["from"]["id"] not in OWNERS:
+            ign += 1
             continue
         parts = m["text"].split()
         if not parts:
             continue
-        send(m["chat"]["id"], run_cmd(parts[0].split("@")[0].lower(), parts[1:]))
+        try:
+            out = run_cmd(parts[0].split("@")[0].lower(), parts[1:])
+        except Exception as e:
+            print("command failed:", parts[0], type(e).__name__, str(e)[:120])
+            out = "Ошибка при выполнении команды"
+        print("command:", parts[0], "->", "photo" if isinstance(out, bytes) else "text")
+        send(m["chat"]["id"], out)
+        ans += 1
     meta_set("off", str(off))
-    print("changes:", len(ch), "updates:", len(ups))
+    print("changes:", len(ch), "updates:", len(ups), "answered:", ans, "ignored:", ign)
 
 
 class H(BaseHTTPRequestHandler):
